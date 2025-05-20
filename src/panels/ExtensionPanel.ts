@@ -3,9 +3,10 @@ import { getNonce } from "../utilities/getNonce";
 import { getUri } from "../utilities/getUri";
 import { searchMcpServers } from "../utilities/repoSearch";
 import { type TelemetryReporter } from "@vscode/extension-telemetry";
+import { defaultMcpConfig } from "../defaultConfig";
 
 export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "copilotMcpView";
+  public static readonly viewType = "createlexMcpView";
   octokit: any;
 
   constructor(
@@ -25,7 +26,7 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this._extensionUri],
     };
 
-    
+
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
@@ -41,6 +42,113 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
         case "getNewMcpServers": {
 
         }
+        case "browseUnrealProject": {
+          try {
+            console.log("Received browseUnrealProject message");
+
+            // Show a folder picker dialog
+            const folderUri = await vscode.window.showOpenDialog({
+              canSelectFiles: false,
+              canSelectFolders: true,
+              canSelectMany: false,
+              openLabel: 'Select Unreal Engine Project Folder'
+            });
+
+            console.log("Folder picker result:", folderUri);
+
+            if (folderUri && folderUri.length > 0) {
+              const projectPath = folderUri[0].fsPath;
+              console.log("Selected project path:", projectPath);
+
+              // Check if the MCP server file exists in the expected location
+              const mcpServerPath = vscode.Uri.joinPath(folderUri[0], 'Plugins', 'UnrealGenAISupport', 'Content', 'Python', 'mcp_server.py');
+              console.log("Looking for MCP server at:", mcpServerPath.fsPath);
+
+              try {
+                await vscode.workspace.fs.stat(mcpServerPath);
+                console.log("MCP server file found!");
+
+                // MCP server file exists, send the project path back to the webview
+                webviewView.webview.postMessage({
+                  type: "unrealProjectSelected",
+                  projectPath,
+                  valid: true
+                });
+
+                // Also update the MCP server configuration
+                await updateMcpServerWithProjectPath(projectPath);
+
+                // Show a notification to the user
+                vscode.window.showInformationMessage(`Unreal Engine project selected: ${projectPath}`);
+              } catch (error) {
+                console.log("MCP server file not found:", error);
+
+                // MCP server file doesn't exist, but still send the path back
+                webviewView.webview.postMessage({
+                  type: "unrealProjectSelected",
+                  projectPath,
+                  valid: false,
+                  error: `MCP server not found at ${mcpServerPath.fsPath}. Please make sure the UnrealGenAISupport plugin is installed.`
+                });
+
+                // Show a notification to the user
+                vscode.window.showWarningMessage(`MCP server not found at ${mcpServerPath.fsPath}. Please make sure the UnrealGenAISupport plugin is installed.`);
+              }
+            } else {
+              console.log("No folder selected");
+            }
+          } catch (error) {
+            console.error("Error browsing for Unreal Engine project:", error);
+            vscode.window.showErrorMessage(`Error browsing for Unreal Engine project: ${error}`);
+          }
+          break;
+        }
+        case "selectUnrealProject": {
+          try {
+            const projectPath = message.projectPath;
+            if (projectPath) {
+              // Update the MCP server configuration with the selected project path
+              await updateMcpServerWithProjectPath(projectPath);
+
+              // Send a success message back to the webview
+              webviewView.webview.postMessage({
+                type: "projectPathUpdated",
+                success: true,
+                projectPath
+              });
+
+              // Refresh the servers list
+              await sendServers(webviewView);
+            }
+          } catch (error) {
+            console.error("Error updating project path:", error);
+            webviewView.webview.postMessage({
+              type: "projectPathUpdated",
+              success: false,
+              error: error instanceof Error ? error.message : "Unknown error"
+            });
+          }
+          break;
+        }
+        case "getUnrealProjectPath": {
+          try {
+            // Get the current MCP configuration
+            const config = vscode.workspace.getConfiguration("mcp");
+            const servers = config.get("servers", {} as Record<string, any>);
+
+            // Get the project path from the CreateLex MCP server configuration
+            const projectPath = servers["CreateLex-UnrealEngine"]?.env?.UNREAL_PROJECT_PATH || "";
+
+            // Send the project path back to the webview
+            webviewView.webview.postMessage({
+              type: "unrealProjectPath",
+              projectPath
+            });
+          } catch (error) {
+            console.error("Error getting project path:", error);
+          }
+          break;
+        }
         case "aiAssistedSetup": {
           this._telemetryReporter.sendTelemetryEvent("attemptMcpServerInstall", {
             accountId: this._session.account.id,
@@ -50,7 +158,7 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
             repoUrl: message.payload.repo?.url.split("//")[1],
           });
           // Expecting payload.repo and payload.readme
-          const readmeToParse = message.payload.repo.readme; 
+          const readmeToParse = message.payload.repo.readme;
           if (!readmeToParse) {
             vscode.window.showErrorMessage("README content is missing in aiAssistedSetup message.");
             webviewView.webview.postMessage({
@@ -81,7 +189,7 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
             const config = vscode.workspace.getConfiguration(configKey);
             await config.update(message.payload.envKey, message.payload.newValue);
           } catch (error) {
-            
+
           }
           //   await sendServers(webviewView);
           break;
@@ -104,7 +212,7 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
 
             const readmeData = await octokit.repos.getReadme({ owner, repo });
             const readmeContent = Buffer.from(readmeData.data.content, 'base64').toString('utf8');
-            
+
             webviewView.webview.postMessage({
               type: "receivedReadme",
               payload: {
@@ -132,7 +240,7 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
             page: message.page?.toString() || "1",
             perPage: message.perPage?.toString() || "10",
             accountId: this._session.account.id,
-            accountLabel: this._session.account.label 
+            accountLabel: this._session.account.label
           });
           const page = message.page || 1;
           const perPage = message.perPage || 10;
@@ -178,7 +286,7 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
           try {
             await deleteServer(webviewView, serverKeyToDelete);
           } catch (error) {
-            
+
           }
           break;
         }
@@ -230,7 +338,7 @@ export class CopilotMcpViewProvider implements vscode.WebviewViewProvider {
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https: data:;">
             <link rel="stylesheet" type="text/css" href="${stylesUri}">
-            <title>Hello World</title>
+            <title>CreateLex MCP</title>
           </head>
           <body>
             <div id="root"></div>
@@ -253,10 +361,10 @@ function openMcpInstallUri(mcpConfig: object) {
 }
 
 const craftedPrompt = vscode.LanguageModelChatMessage.User(`
-You are a helpful assistant that can expertly parse a README.md file and extract the MCP JSON object for a given open source 
+You are a helpful assistant that can expertly parse a README.md file and extract the MCP JSON object for a given open source
 MCP server. You will be given the contents of a README.md file and you will need to parse the JSON configuration to provide
 that will be used to construct a vscode URI.
-The vscode URI mcp server object is in the same format as you would provide to --add-mcp (i.e. code --add-mcp "{\"name\":\"my-server\",\"command\": \"uvx\",\"args\": [\"mcp-server-fetch\"]}"), 
+The vscode URI mcp server object is in the same format as you would provide to --add-mcp (i.e. code --add-mcp "{\"name\":\"my-server\",\"command\": \"uvx\",\"args\": [\"mcp-server-fetch\"]}"),
 and will be used like so:
 // For Insiders, use vscode-insiders instead of code
 const link = \\\`vscode:mcp/install?\${encodeURIComponent(JSON.stringify(obj))}\\\`;
@@ -396,7 +504,7 @@ const responseFormatPrompt = vscode.LanguageModelChatMessage.User(`
 async function vscodeLMResponse(readme: string, webviewView?: vscode.WebviewView, repoFullName?: string) {
   return await vscode.window.withProgress(
     {
-      title: "Installing MCP server with Copilot...",
+      title: "Installing CreateLex MCP server...",
       location: vscode.ProgressLocation.Notification,
     },
     async (progress, token) => {
@@ -432,9 +540,9 @@ async function vscodeLMResponse(readme: string, webviewView?: vscode.WebviewView
         if (webviewView && repoFullName) {
           webviewView.webview.postMessage({
             type: "serverInstallSuccess", // Or a more generic success message
-            payload: { 
+            payload: {
               fullName: repoFullName,
-              serverConfig: parsedResponse 
+              serverConfig: parsedResponse
             }
           });
         }
@@ -475,7 +583,7 @@ async function parseChatResponse(
         const parsedResponse = JSON.parse(accumulatedResponse);
         return parsedResponse;
       } catch (e) {
-        
+
         // do nothing
       }
     }
@@ -496,17 +604,76 @@ async function sendServers(webviewView: vscode.WebviewView) {
   await deleteServer(webviewView, "mcp-server-time");
   const config = vscode.workspace.getConfiguration("mcp");
   const servers = config.get("servers", {} as Record<string, any>);
+
+  // Check if we need to add the default CreateLex MCP server
+  if (!servers["CreateLex-UnrealEngine"]) {
+    try {
+      // Add the default CreateLex MCP server configuration
+      await addDefaultCreateLexServer(config);
+      // Refresh the servers list
+      const updatedServers = config.get("servers", {} as Record<string, any>);
+      webviewView.webview.postMessage({
+        type: "receivedMCPConfigObject",
+        data: { servers: updatedServers },
+      });
+      return;
+    } catch (error) {
+      console.error("Error adding default CreateLex MCP server:", error);
+    }
+  }
+
   try {
     if (servers["mcp-server-time"]) {
       delete servers["mcp-server-time"];
     }
   } catch (error) {
-    
+
   }
   webviewView.webview.postMessage({
     type: "receivedMCPConfigObject",
     data: { servers },
   });
+}
+
+/**
+ * Adds the default CreateLex MCP server configuration
+ * @param projectPath Optional path to the Unreal Engine project
+ */
+async function addDefaultCreateLexServer(config: vscode.WorkspaceConfiguration, projectPath?: string) {
+  const servers = config.get("servers", {} as Record<string, any>);
+
+  // Add the default CreateLex MCP server
+  servers["CreateLex-UnrealEngine"] = defaultMcpConfig(projectPath);
+
+  // Update the configuration
+  await config.update("servers", servers, vscode.ConfigurationTarget.Global);
+
+  // Show a notification to the user
+  vscode.window.showInformationMessage("CreateLex MCP server configuration added successfully!");
+}
+
+/**
+ * Updates the MCP server configuration with the selected Unreal Engine project path
+ * @param projectPath Path to the Unreal Engine project
+ */
+async function updateMcpServerWithProjectPath(projectPath: string) {
+  const config = vscode.workspace.getConfiguration("mcp");
+  const servers = config.get("servers", {} as Record<string, any>);
+
+  if (servers["CreateLex-UnrealEngine"]) {
+    // Update the existing server configuration
+    servers["CreateLex-UnrealEngine"] = defaultMcpConfig(projectPath);
+  } else {
+    // Add a new server configuration
+    await addDefaultCreateLexServer(config, projectPath);
+    return;
+  }
+
+  // Update the configuration
+  await config.update("servers", servers, vscode.ConfigurationTarget.Global);
+
+  // Show a notification to the user
+  vscode.window.showInformationMessage("Unreal Engine project path updated successfully!");
 }
 
 async function deleteServer(
@@ -525,7 +692,7 @@ async function deleteServer(
         delete updatedServers["mcp-server-time"];
       }
     } catch (error) {
-      
+
     }
 
     try {

@@ -1,17 +1,17 @@
 {
-  "name": "copilot-mcp",
+  "name": "createlex-mcp",
   "author": {
-    "email": "vikash@automatalabs.io",
-    "name": "Vikash Loomba",
-    "url": "https://automatalabs.io"
+    "email": "info@alexkissijr.com",
+    "name": "Alex Kissi Jr",
+    "url": "https://createlex.com"
   },
-  "publisher": "AutomataLabs",
+  "publisher": "CreateLex",
   "repository": {
-    "url": "https://github.com/vikashloomba/copilot-mcp",
+    "url": "https://github.com/AlexKissiJr/createlex-vscode-mcp",
     "type": "git"
   },
-  "displayName": "Copilot MCP",
-  "description": "VSCode extension that allows you to search, manage, and install open-source MCP servers",
+  "displayName": "CreateLex MCP",
+  "description": "VSCode extension that connects to CreateLex MCP servers for Unreal Engine integration",
   "version": "0.0.41",
   "icon": "logo.png",
   "engines": {
@@ -54,25 +54,33 @@
   "contributes": {
     "commands": [
       {
-        "command": "copilot-mcp.helloWorld",
+        "command": "createlex-mcp.helloWorld",
         "title": "Hello World"
+      },
+      {
+        "command": "createlex-mcp.addDefaultServer",
+        "title": "CreateLex: Add MCP Server for Unreal Engine"
+      },
+      {
+        "command": "createlex-mcp.selectUnrealProject",
+        "title": "CreateLex: Select Unreal Engine Project"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "copilotMcpSidebar",
-          "title": "Copilot MCP",
+          "id": "createlexMcpSidebar",
+          "title": "CreateLex MCP",
           "icon": "resources/light/server.svg"
         }
       ]
     },
     "views": {
-      "copilotMcpSidebar": [
+      "createlexMcpSidebar": [
         {
           "type": "webview",
-          "id": "copilotMcpView",
-          "name": "Copilot MCP Panel",
+          "id": "createlexMcpView",
+          "name": "CreateLex MCP Panel",
           "icon": "resources/light/server.svg"
         }
       ]
@@ -89,7 +97,7 @@
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "npm run build:all",
     "build:all": "npm run compile && npm run build:webview",
-    "package-extension": "npm run package && npx vsce package -o copilot-mcp-${npm_package_version}.vsix",
+    "package-extension": "npm run package && npx vsce package -o createlex-mcp-${npm_package_version}.vsix",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
